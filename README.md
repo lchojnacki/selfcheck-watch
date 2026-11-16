@@ -19,7 +19,7 @@ problem; `messages` are shown in the notification.
 
 ## Install
 
-Requires GNOME Shell 50.
+Requires GNOME Shell 46 to 50.
 
 ```sh
 git clone https://github.com/lchojnacki/selfcheck-watch.git
@@ -60,6 +60,11 @@ header.Authorization=Bearer secret-token
 Toggling an endpoint in the menu writes `enabled=` back to the file. Comments are kept, but
 blank lines may be reformatted.
 
+GNOME Shell disables the extension while the screen is locked. Every unlock runs a check right away
+and restarts the interval timer, so endpoints are checked at most `interval_minutes` apart and more
+often if you lock the screen often. The timer stops during suspend, so after resuming without a lock
+the next check can come later than `interval_minutes` of wall-clock time.
+
 Values are not quoted (`url=https://...`) and comments must be on their own line (`# ...`). A backslash in a value starts an escape sequence
 (`\\` for a literal backslash).
 
@@ -79,6 +84,16 @@ gjs -m test.js
 ```
 
 Covers config parsing and the HTTP check against a local server.
+
+```sh
+./test-shell-versions.sh        # every version in metadata.json's shell-version
+./test-shell-versions.sh 46 50  # just these
+```
+
+Needs Docker. For each GNOME Shell version it starts a headless shell in the matching Ubuntu
+release, checks that the extension gets enabled without errors and runs its first check, then runs
+`test.js` with that version's gjs. A new version needs its Ubuntu release added to `ubuntu_for()`.
+GitHub Actions runs it on every push to main and on pull requests ([.github/workflows/test.yml](.github/workflows/test.yml)).
 
 ## License
 

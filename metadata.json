@@ -3,5 +3,5 @@
   "name": "Selfcheck Watch",
   "description": "Periodically polls HTTP health-check endpoints that return {\"status\": \"OK\"} and notifies you when one of them reports a problem. Endpoints, interval and request headers are configured in ~/.config/selfcheck-watch.ini.",
   "url": "https://github.com/lchojnacki/selfcheck-watch",
-  "shell-version": ["50"]
+  "shell-version": ["46", "47", "48", "49", "50"]
 }

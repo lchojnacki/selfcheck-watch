@@ -1,0 +1,14 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  shell-versions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Load the extension in every GNOME Shell version from metadata.json
+        run: ./test-shell-versions.sh
