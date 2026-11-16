@@ -8,14 +8,19 @@ notifies you when one of them reports a problem.
   "Check now" and "Edit config"
 - desktop notification on every check that finds a problem
 
-Each endpoint must answer HTTP 200 with JSON like:
+An endpoint is OK when it answers HTTP 200 and the body matches `ok_regex` (a JavaScript regex,
+set globally in `[general]` or per endpoint). The default, `"status"\s*:\s*"OK"`, accepts JSON like:
 
 ```json
 {"status": "OK", "messages": []}
 ```
 
-Anything else (another `status`, a non-200 response, a timeout, invalid JSON) counts as a
-problem; `messages` are shown in the notification.
+Anything else (no match, a non-200 response, a timeout) counts as a problem. The notification shows
+every match of `problem_regex` (its first group, if it has one) joined with `, `, or the first 100
+characters of the body when `problem_regex` is not set or matches nothing. For example
+`problem_regex=problem id: (\d+)` turns
+`{"status":"WARNING","messages":["Check failed, problem id: 5369","Check failed, problem id: 5359"]}`
+into `5369, 5359`.
 
 ## Install
 
@@ -47,6 +52,9 @@ interval_minutes=30
 timeout_seconds=30
 # headers for every endpoint: header.<Name>=<value>
 header.User-Agent=my-monitor
+# default "status"\s*:\s*"OK"; both can be overridden per endpoint
+ok_regex="status"\s*:\s*"OK"
+problem_regex=problem id: (\d+)
 
 # section name = label in the menu
 [production]
@@ -66,7 +74,7 @@ often if you lock the screen often. The timer stops during suspend, so after res
 the next check can come later than `interval_minutes` of wall-clock time.
 
 Values are not quoted (`url=https://...`) and comments must be on their own line (`# ...`). A backslash in a value starts an escape sequence
-(`\\` for a literal backslash).
+(`\\` for a literal backslash), except in `ok_regex` and `problem_regex`, which are taken as written.
 
 ## Troubleshooting
 

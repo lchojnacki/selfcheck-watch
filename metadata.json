@@ -1,7 +1,7 @@
 {
   "uuid": "selfcheck-watch@lchojnacki",
   "name": "Selfcheck Watch",
-  "description": "Periodically polls HTTP health-check endpoints that return {\"status\": \"OK\"} and notifies you when one of them reports a problem. Endpoints, interval and request headers are configured in ~/.config/selfcheck-watch.ini.",
+  "description": "Periodically polls HTTP health-check endpoints and notifies you when a response does not match the expected pattern (by default {\"status\": \"OK\"}). Endpoints, interval, request headers and patterns are configured in ~/.config/selfcheck-watch.ini.",
   "url": "https://github.com/lchojnacki/selfcheck-watch",
   "shell-version": ["46", "47", "48", "49", "50"]
 }

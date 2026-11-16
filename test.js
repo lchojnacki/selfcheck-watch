@@ -20,6 +20,7 @@ const write = s => GLib.file_set_contents(ini, s);
 write(`# top comment
 [general]
 interval_minutes=5
+problem_regex=problem id: (\\d+)
 header.User-Agent=ua-general
 header.X-Common=c
 [a]
@@ -29,13 +30,19 @@ header.User-Agent=ua-a
 [b]
 url=https://b/
 enabled=false
+ok_regex=^\\s*pong$
 [not-an-endpoint]
 foo=bar
 `);
 eq(loadConfig(ini), {intervalMin: 5, timeoutSec: 30, endpoints: [
-    {name: 'a', url: 'https://a/', enabled: true, headers: {'User-Agent': 'ua-a', 'X-Common': 'c'}},
-    {name: 'b', url: 'https://b/', enabled: false, headers: {'User-Agent': 'ua-general', 'X-Common': 'c'}},
+    {name: 'a', url: 'https://a/', enabled: true, headers: {'User-Agent': 'ua-a', 'X-Common': 'c'}, okRegex: {}, problemRegex: {}},
+    {name: 'b', url: 'https://b/', enabled: false, headers: {'User-Agent': 'ua-general', 'X-Common': 'c'}, okRegex: {}, problemRegex: {}},
 ]});
+// regexes are read raw: \d and \s stay as written; endpoint value overrides [general]
+eq(loadConfig(ini).endpoints.map(e => [e.okRegex.source, e.problemRegex.source, e.problemRegex.flags]), [
+    ['"status"\\s*:\\s*"OK"', 'problem id: (\\d+)', 'g'],
+    ['^\\s*pong$', 'problem id: (\\d+)', 'g'],
+]);
 setEnabled('a', false, ini);
 setEnabled('b', true, ini);
 eq(loadConfig(ini).endpoints.map(e => e.enabled), [false, true]);
@@ -43,7 +50,9 @@ if (!read(ini).includes('# top comment') || !read(ini).includes('# a comment'))
     throw new Error(`comments lost:\n${read(ini)}`);
 
 write('[a]\nurl=https://a/\n');
-eq(loadConfig(ini), {intervalMin: 30, timeoutSec: 30, endpoints: [{name: 'a', url: 'https://a/', enabled: true, headers: {}}]});
+eq(loadConfig(ini), {intervalMin: 30, timeoutSec: 30, endpoints: [{name: 'a', url: 'https://a/', enabled: true, headers: {}, okRegex: {}, problemRegex: null}]});
+write('[a]\nurl=https://a/\nok_regex=(\n');
+throws(() => loadConfig(ini));
 write('[general]\ninterval_minutes=0\n');
 throws(() => loadConfig(ini));
 write('[general]\ntimeout_seconds=abc\n');
@@ -72,8 +81,10 @@ server.add_handler(null, (_s, msg, path) => {
     const ua = msg.get_request_headers().get_one('User-Agent');
     const body = {
         '/ok': '{"status":"OK","messages":[]}',
-        '/warn': '{"status":"WARNING","messages":["basket 1","basket 2"]}',
+        '/warn': '{"status":"WARNING","messages":["problem 1","problem 2"]}',
         '/junk': 'not json',
+        '/plain': 'pong',
+        '/long': 'x'.repeat(500),
         '/ua': JSON.stringify({status: ua}),
     }[path];
     msg.set_status(body ? 200 : 500, null);
@@ -82,17 +93,24 @@ server.add_handler(null, (_s, msg, path) => {
 server.listen_local(0, Soup.ServerListenOptions.IPV4_ONLY);
 const base = server.get_uris()[0].to_string().replace(/\/$/, '');
 const session = new Soup.Session({timeout: 5});
-const get = (path, headers = {}) => fetchStatus(session, {url: base + path, headers});
+const OK = /"status"\s*:\s*"OK"/;
+const get = (path, headers = {}, okRegex = OK, problemRegex = null) =>
+    fetchStatus(session, {url: base + path, headers, okRegex, problemRegex});
 
 const loop = new GLib.MainLoop(null, false);
 let failure = null;
 (async () => {
     eq(await get('/ok'), 'OK');
-    eq(await get('/warn'), 'WARNING basket 1; basket 2');
+    eq(await get('/warn'), 'unexpected response: {"status":"WARNING","messages":["problem 1","problem 2"]}');
+    eq(await get('/warn', {}, OK, /problem (\d+)/g), '1, 2');
+    eq(await get('/warn', {}, OK, /problem/g), 'problem, problem'); // no group -> whole match
+    eq(await get('/warn', {}, OK, /nope (\d+)/g), 'unexpected response: {"status":"WARNING","messages":["problem 1","problem 2"]}');
+    eq(await get('/plain', {}, /^pong$/), 'OK');
+    eq(await get('/long'), `unexpected response: ${'x'.repeat(100)}`);
     eq(await get('/boom'), 'HTTP 500');
-    eq((await get('/junk')).startsWith('error: '), true);
-    eq(await get('/ua'), `${DEFAULT_USER_AGENT} `);
-    eq(await get('/ua', {'User-Agent': 'custom-ua'}), 'custom-ua ');
+    eq(await get('/junk'), 'unexpected response: not json');
+    eq(await get('/ua', {}, new RegExp(`"${DEFAULT_USER_AGENT}"`)), 'OK');
+    eq(await get('/ua', {'User-Agent': 'custom-ua'}, /"custom-ua"/), 'OK');
     eq(await fetchStatus(session, {url: 'not a url', headers: {}}), 'bad url: not a url');
 })().catch(e => (failure = e)).finally(() => loop.quit());
 loop.run();

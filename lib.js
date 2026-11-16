@@ -17,6 +17,20 @@ function headers(kf, group) {
         .map(k => [k.slice(HEADER_PREFIX.length), kf.get_string(group, k)]));
 }
 
+// Raw value (get_value, not get_string): KeyFile unescaping would turn \s into a space and reject \d.
+function regex(kf, group, key, flags) {
+    const g = keys(kf, group).includes(key) ? group : keys(kf, 'general').includes(key) ? 'general' : null;
+    if (!g)
+        return null;
+    try {
+        return new RegExp(kf.get_value(g, key), flags);
+    } catch (e) {
+        throw new Error(`[${g}] ${key}: ${e.message}`);
+    }
+}
+
+const DEFAULT_OK_REGEX = /"status"\s*:\s*"OK"/;
+
 function positiveInt(kf, key, fallback) {
     if (!keys(kf, 'general').includes(key))
         return fallback;
@@ -26,7 +40,7 @@ function positiveInt(kf, key, fallback) {
     return value;
 }
 
-// Returns {intervalMin, timeoutSec, endpoints: [{name, url, enabled, headers}]}.
+// Returns {intervalMin, timeoutSec, endpoints: [{name, url, enabled, headers, okRegex, problemRegex}]}.
 // Throws GLib.Error / Error on a missing or broken file.
 export function loadConfig(path = CONFIG) {
     const kf = new GLib.KeyFile();
@@ -39,6 +53,8 @@ export function loadConfig(path = CONFIG) {
             url: kf.get_string(g, 'url'),
             enabled: !keys(kf, g).includes('enabled') || kf.get_boolean(g, 'enabled'),
             headers: {...common, ...headers(kf, g)},
+            okRegex: regex(kf, g, 'ok_regex', '') ?? DEFAULT_OK_REGEX,
+            problemRegex: regex(kf, g, 'problem_regex', 'g'),
         }));
     return {
         intervalMin: positiveInt(kf, 'interval_minutes', 30),
@@ -66,7 +82,7 @@ export function setEnabled(name, value, path = CONFIG) {
 }
 
 // Resolves to 'OK' or a short problem description; never rejects.
-export function fetchStatus(session, {url, headers}) {
+export function fetchStatus(session, {url, headers, okRegex, problemRegex}) {
     return new Promise(resolve => {
         let msg;
         try {
@@ -82,8 +98,10 @@ export function fetchStatus(session, {url, headers}) {
                 const body = new TextDecoder().decode(s.send_and_read_finish(res).get_data());
                 if (msg.get_status() !== 200)
                     return resolve(`HTTP ${msg.get_status()}`);
-                const data = JSON.parse(body);
-                resolve(data.status === 'OK' ? 'OK' : `${data.status} ${(data.messages ?? []).join('; ')}`);
+                if (okRegex.test(body))
+                    return resolve('OK');
+                const found = problemRegex ? [...body.matchAll(problemRegex)].map(m => m[1] ?? m[0]) : [];
+                resolve(found.length ? found.join(', ') : `unexpected response: ${body.replace(/\s+/g, ' ').trim().slice(0, 100)}`);
             } catch (e) {
                 resolve(`error: ${e.message}`);
             }
