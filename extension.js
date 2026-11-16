@@ -9,25 +9,42 @@ import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
 import {CONFIG, ensureConfig, fetchStatus, loadConfig, setEnabled} from './lib.js';
 
+const ICON_OK = 'emblem-default-symbolic';
+const ICON_PROBLEM = 'dialog-warning-symbolic';
+
+const infoItem = text => new PopupMenu.PopupMenuItem(text, {reactive: false});
+
 export default class SelfcheckWatch extends Extension {
     enable() {
         this._session = new Soup.Session();
         this._button = new PanelMenu.Button(0.0, this.metadata.name);
-        this._icon = new St.Icon({icon_name: 'emblem-default-symbolic', style_class: 'system-status-icon'});
+        this._icon = new St.Icon({icon_name: ICON_OK, style_class: 'system-status-icon'});
         this._button.add_child(this._icon);
-        this._button.menu.addAction('Check now', () => this._check());
-        this._button.menu.addAction('Edit config', () =>
+
+        const menu = this._button.menu;
+        menu.addAction('Check now', () => this._check());
+        menu.addAction('Edit config', () =>
             Gio.AppInfo.launch_default_for_uri(GLib.filename_to_uri(CONFIG, null), null));
-        this._lastChecked = new PopupMenu.PopupMenuItem('Last checked: never', {reactive: false});
-        this._button.menu.addMenuItem(this._lastChecked);
-        this._button.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        this._lastChecked = infoItem('Last checked: never');
+        menu.addMenuItem(this._lastChecked);
+        menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         this._section = new PopupMenu.PopupMenuSection();
-        this._button.menu.addMenuItem(this._section);
+        menu.addMenuItem(this._section);
+
         Main.panel.addToStatusArea(this.uuid, this._button);
         this._schedule(30);
         this._check();
     }
 
+    disable() {
+        GLib.source_remove(this._timer);
+        this._session.abort();
+        this._button.destroy();
+        this._timer = this._intervalMin = null;
+        this._button = this._session = this._section = this._icon = this._lastChecked = null;
+    }
+
+    // (Re)starts the check timer; a no-op when the interval has not changed.
     _schedule(minutes) {
         if (minutes === this._intervalMin)
             return;
@@ -40,53 +57,55 @@ export default class SelfcheckWatch extends Extension {
         });
     }
 
-    disable() {
-        GLib.source_remove(this._timer);
-        this._session.abort();
-        this._button.destroy();
-        this._timer = this._intervalMin = null;
-        this._button = this._session = this._section = this._icon = this._lastChecked = null;
-    }
-
     async _check() {
         const gen = this._gen = (this._gen ?? 0) + 1;
-        let endpoints = [], bad = [];
+        const {endpoints, bad} = await this._poll();
+        if (!this._button || gen !== this._gen)
+            return; // disabled while fetching, or a newer check started - let it render
+        this._render(endpoints, bad);
+    }
+
+    // Reads the config and checks every enabled endpoint. Never rejects: config errors end up in `bad`.
+    async _poll() {
         try {
             ensureConfig(GLib.build_filenamev([this.path, 'config.example.ini']));
             const cfg = loadConfig();
             this._schedule(cfg.intervalMin); // picks up interval changes from the config
             this._session.timeout = cfg.timeoutSec;
-            endpoints = cfg.endpoints;
+            const {endpoints} = cfg;
             const results = await Promise.all(endpoints.map(e => e.enabled ? fetchStatus(this._session, e) : null));
             endpoints.forEach((e, i) => (e.result = results[i]));
-            bad = endpoints.filter(e => e.enabled && e.result !== 'OK').map(e => `${e.name}: ${e.result}`);
+            const bad = endpoints.filter(e => e.enabled && e.result !== 'OK').map(e => `${e.name}: ${e.result}`);
+            return {endpoints, bad};
         } catch (e) {
-            bad = [`config error: ${e.message}`];
+            return {endpoints: [], bad: [`config error: ${e.message}`]};
         }
-        if (!this._button || gen !== this._gen)
-            return; // disabled while fetching, or a newer check started - let it render
+    }
+
+    _render(endpoints, bad) {
         this._lastChecked.label.text = `Last checked: ${GLib.DateTime.new_now_local().format('%H:%M:%S')}`;
         this._section.removeAll();
-        for (const e of endpoints) {
-            const item = new PopupMenu.PopupSwitchMenuItem(e.enabled ? `${e.name}: ${e.result}` : `${e.name}: off`, e.enabled);
-            if (!e.enabled)
-                item.label.opacity = 110; // dim disabled endpoints
-            item.connect('toggled', (_item, value) => {
-                try {
-                    setEnabled(e.name, value);
-                } catch (err) {
-                    Main.notify(this.metadata.name, `cannot save config: ${err.message}`);
-                }
-                this._check();
-            });
-            this._section.addMenuItem(item);
-        }
-        if (bad.length && !endpoints.length)
-            this._section.addMenuItem(new PopupMenu.PopupMenuItem(bad[0], {reactive: false}));
-        else if (!endpoints.length)
-            this._section.addMenuItem(new PopupMenu.PopupMenuItem('no endpoints in config', {reactive: false}));
-        this._icon.icon_name = bad.length ? 'dialog-warning-symbolic' : 'emblem-default-symbolic';
+        for (const e of endpoints)
+            this._section.addMenuItem(this._endpointItem(e));
+        if (!endpoints.length)
+            this._section.addMenuItem(infoItem(bad[0] ?? 'no endpoints in config'));
+        this._icon.icon_name = bad.length ? ICON_PROBLEM : ICON_OK;
         if (bad.length)
             Main.notify(`${this.metadata.name}: problem`, bad.join('\n'));
+    }
+
+    _endpointItem(e) {
+        const item = new PopupMenu.PopupSwitchMenuItem(`${e.name}: ${e.enabled ? e.result : 'off'}`, e.enabled);
+        if (!e.enabled)
+            item.label.opacity = 110; // dim disabled endpoints
+        item.connect('toggled', (_item, value) => {
+            try {
+                setEnabled(e.name, value);
+            } catch (err) {
+                Main.notify(this.metadata.name, `cannot save config: ${err.message}`);
+            }
+            this._check();
+        });
+        return item;
     }
 }

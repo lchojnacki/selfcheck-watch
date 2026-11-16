@@ -71,6 +71,14 @@ eq(loadConfig(fresh).endpoints.map(e => e.enabled), [false, false]); // placehol
 GLib.file_set_contents(fresh, 'mine');
 ensureConfig(example, fresh);
 eq(read(fresh), 'mine');
+// toggling through a symlink (dotfiles) writes the target and keeps the link
+const link = GLib.build_filenamev([dir, 'link.ini']);
+Gio.File.new_for_path(link).make_symbolic_link('sub/selfcheck-watch.ini', null); // relative target
+GLib.file_set_contents(fresh, '[a]\nurl=https://a/\n');
+setEnabled('a', false, link);
+eq(GLib.file_test(link, GLib.FileTest.IS_SYMLINK), true);
+eq(loadConfig(fresh).endpoints.map(e => e.enabled), [false]);
+GLib.unlink(link);
 GLib.unlink(fresh);
 GLib.rmdir(GLib.path_get_dirname(fresh));
 GLib.rmdir(dir);

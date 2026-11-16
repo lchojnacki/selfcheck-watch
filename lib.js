@@ -6,6 +6,7 @@ import Soup from 'gi://Soup?version=3.0';
 export const CONFIG = GLib.build_filenamev([GLib.get_user_config_dir(), 'selfcheck-watch.ini']);
 const HEADER_PREFIX = 'header.';
 export const DEFAULT_USER_AGENT = 'selfcheck-watch/1';
+const DEFAULT_OK_REGEX = /"status"\s*:\s*"OK"/;
 
 function keys(kf, group) {
     return kf.get_groups()[0].includes(group) ? kf.get_keys(group)[0] : [];
@@ -28,8 +29,6 @@ function regex(kf, group, key, flags) {
         throw new Error(`[${g}] ${key}: ${e.message}`);
     }
 }
-
-const DEFAULT_OK_REGEX = /"status"\s*:\s*"OK"/;
 
 function positiveInt(kf, key, fallback) {
     if (!keys(kf, 'general').includes(key))
@@ -78,6 +77,10 @@ export function setEnabled(name, value, path = CONFIG) {
     const kf = new GLib.KeyFile();
     kf.load_from_file(path, GLib.KeyFileFlags.KEEP_COMMENTS);
     kf.set_boolean(name, 'enabled', value);
+    // save_to_file renames a temp file over `path`, which would replace a symlink (e.g. dotfiles) with a copy;
+    // a symlink loop cannot get here, load_from_file above already failed on it
+    while (GLib.file_test(path, GLib.FileTest.IS_SYMLINK))
+        path = GLib.canonicalize_filename(GLib.file_read_link(path), GLib.path_get_dirname(path));
     kf.save_to_file(path);
 }
 
