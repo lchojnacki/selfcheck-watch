@@ -59,6 +59,7 @@ export default class SelfcheckWatch extends Extension {
 
     async _check() {
         const gen = this._gen = (this._gen ?? 0) + 1;
+        this._lastChecked.label.text = 'Checking…';
         const {endpoints, bad} = await this._poll();
         if (!this._button || gen !== this._gen)
             return; // disabled while fetching, or a newer check started - let it render
