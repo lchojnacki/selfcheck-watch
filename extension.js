@@ -98,6 +98,9 @@ export default class SelfcheckWatch extends Extension {
         this._icon.icon_name = bad.length ? ICON_PROBLEM : ICON_OK;
         if (bad.length)
             Main.notify(`${this.metadata.name}: problem`, bad.join('\n'));
+        else if (this._hadProblems)
+            Main.notify(`${this.metadata.name}: recovered`, 'All enabled endpoints are OK');
+        this._hadProblems = bad.length > 0; // not reset in disable(), so a recovery right after unlock is reported
     }
 
     // Collapsed submenu "<title> (N)"; skipped when empty.

@@ -7,7 +7,7 @@ notifies you when one of them reports a problem.
 - menu: status of each endpoint (⚠️ with the problem text when not OK), a switch to enable or disable it
   (OK and disabled ones are collapsed under "OK" and "Disabled"), last check time ("Checking…" while a check runs),
   "Check now" and "Edit config"
-- desktop notification on every check that finds a problem
+- desktop notification on every check that finds a problem, and one when everything is OK again
 
 An endpoint is OK when it answers HTTP 200 and the body matches `ok_regex` (a JavaScript regex,
 set globally in `[general]` or per endpoint). The default, `"status"\s*:\s*"OK"`, accepts JSON like:
