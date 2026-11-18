@@ -41,7 +41,7 @@ export default class SelfcheckWatch extends Extension {
         this._session.abort();
         this._button.destroy();
         this._timer = this._intervalMin = null;
-        this._button = this._session = this._section = this._icon = this._lastChecked = null;
+        this._button = this._session = this._section = this._icon = this._lastChecked = this._groups = null;
     }
 
     // (Re)starts the check timer; a no-op when the interval has not changed.
@@ -84,9 +84,14 @@ export default class SelfcheckWatch extends Extension {
 
     _render(endpoints, bad) {
         this._lastChecked.label.text = `Last checked: ${GLib.DateTime.new_now_local().format('%H:%M:%S')}`;
+        // keep groups expanded across re-renders (e.g. after a toggle)
+        const wasOpen = Object.fromEntries(Object.entries(this._groups ?? {}).map(([k, m]) => [k, m.isOpen]));
         this._section.removeAll();
-        for (const e of endpoints)
+        this._groups = {};
+        for (const e of endpoints.filter(e => e.enabled && e.result !== 'OK'))
             this._section.addMenuItem(this._endpointItem(e));
+        this._addGroup('OK', endpoints.filter(e => e.enabled && e.result === 'OK'), wasOpen);
+        this._addGroup('Disabled', endpoints.filter(e => !e.enabled), wasOpen);
         if (!endpoints.length)
             this._section.addMenuItem(infoItem(bad[0] ?? 'no endpoints in config'));
         this._icon.icon_name = bad.length ? ICON_PROBLEM : ICON_OK;
@@ -94,8 +99,21 @@ export default class SelfcheckWatch extends Extension {
             Main.notify(`${this.metadata.name}: problem`, bad.join('\n'));
     }
 
+    // Collapsed submenu "<title> (N)"; skipped when empty.
+    _addGroup(title, endpoints, wasOpen) {
+        if (!endpoints.length)
+            return;
+        const sub = new PopupMenu.PopupSubMenuMenuItem(`${title} (${endpoints.length})`);
+        endpoints.forEach(e => sub.menu.addMenuItem(this._endpointItem(e)));
+        this._section.addMenuItem(sub);
+        if (wasOpen[title])
+            sub.menu.open(false);
+        this._groups[title] = sub.menu;
+    }
+
     _endpointItem(e) {
-        const item = new PopupMenu.PopupSwitchMenuItem(`${e.name}: ${e.enabled ? e.result : 'off'}`, e.enabled);
+        const text = !e.enabled ? e.name :e.result === 'OK' ? `✅ ${e.name}` : `⚠️ ${e.name}: ${e.result}`;
+        const item = new PopupMenu.PopupSwitchMenuItem(text, e.enabled);
         if (!e.enabled)
             item.label.opacity = 110; // dim disabled endpoints
         item.connect('toggled', (_item, value) => {

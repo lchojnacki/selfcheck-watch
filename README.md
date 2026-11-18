@@ -4,7 +4,8 @@ A small GNOME Shell extension that polls HTTP health-check endpoints on an inter
 notifies you when one of them reports a problem.
 
 - panel icon: a check mark when everything is OK, a warning sign when something is not
-- menu: status of each endpoint, a switch to enable or disable it, last check time,
+- menu: status of each endpoint (⚠️ with the problem text when not OK), a switch to enable or disable it
+  (OK and disabled ones are collapsed under "OK" and "Disabled"), last check time,
   "Check now" and "Edit config"
 - desktop notification on every check that finds a problem
 
